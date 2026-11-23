@@ -1,0 +1,4 @@
+node_modules/
+metrics/*.jsonl
+plans/*.json
+.env

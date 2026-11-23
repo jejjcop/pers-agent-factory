@@ -1,0 +1,29 @@
+{
+  "targetRepo": "C:/Per/Projects/stock-panel",
+  "baseBranch": "main",
+  "worktreeDir": "../.factory-worktrees",
+  "setupCommand": "composer install --no-interaction --quiet && php -r \"copy('.env.example', '.env');\" && php artisan key:generate --quiet",
+  "testCommand": "php artisan test",
+  "maxParallel": 3,
+  "maxBuildAttempts": 3,
+  "maxReviewRounds": 2,
+  "maxBudgetUsdPerAgent": 2,
+  "autoMergeLowRisk": false,
+  "highRiskPaths": [
+    "routes/",
+    "config/",
+    "database/migrations/",
+    "app/Http/Middleware/",
+    "app/Providers/",
+    "composer.json",
+    "composer.lock",
+    ".github/",
+    ".claude/"
+  ],
+  "models": {
+    "planner": "opus",
+    "builder": "sonnet",
+    "tester": "sonnet",
+    "reviewer": "opus"
+  }
+}
