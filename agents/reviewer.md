@@ -11,6 +11,7 @@ Review the uncommitted changes in this worktree against the base branch. Check, 
 3. Scope: did the builder change things outside the task? Scope creep is a blocking issue.
 4. Tests: do the tests actually prove the criteria, or do they just exercise the code?
 5. Maintainability: does it follow the codebase's conventions? Is anything hard to read?
+6. Documentation: a documenter agent updated the docs (Markdown files, docs/) after the builder. Is every statement true for the code as changed (commands, paths, options, names, behaviour)? Is any user-visible change left undocumented? Doc edits that describe this change are not scope creep; wrong documentation is blocking, missing documentation is minor.
 
 Be strict but fair. "blocking" means it must be fixed before merge. "minor" means a nice-to-have. Approve only if there are zero blocking issues. Don't nitpick style that a linter would catch.
 

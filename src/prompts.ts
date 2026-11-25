@@ -32,8 +32,12 @@ export function testerPrompt(context: string): string {
   return `${context}\n\nA builder has implemented this task (see git diff). Write tests that try to break it.`;
 }
 
+export function documenterPrompt(context: string): string {
+  return `${context}\n\nA builder has implemented this task and the tests pass (see git diff). Update the project's documentation to match the change, or report that none is needed.`;
+}
+
 export function reviewerPrompt(context: string, baseBranch: string): string {
-  return `${context}\n\nReview the uncommitted changes in this worktree (\`git diff\`, \`git status\`, and new files). The base branch is ${baseBranch}.`;
+  return `${context}\n\nReview the uncommitted changes in this worktree (\`git diff\`, \`git status\`, and new files), code and documentation. The base branch is ${baseBranch}.`;
 }
 
 export function formatReview(review: Review): string {

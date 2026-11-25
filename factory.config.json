@@ -30,6 +30,7 @@
     "planner": "opus",
     "builder": "sonnet",
     "tester": "sonnet",
+    "documenter": "sonnet",
     "reviewer": "opus"
   }
 }

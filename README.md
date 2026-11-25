@@ -31,7 +31,7 @@ metrics/runs.jsonl ─► npm run metrics
 
 ```
 agent-factory/                 ← this repo (TypeScript, Claude Agent SDK)
-├── agents/                    planner / builder / tester / reviewer: role prompts + allowed tools
+├── agents/                    planner / builder / tester / documenter / reviewer: role prompts + allowed tools
 ├── src/pipeline.ts            the orchestration (read this first)
 ├── src/gates.ts               human gate + risk policy ("where does a human belong")
 ├── src/agents.ts              runs one agent via the SDK, logs tool calls, tracks cost
@@ -77,7 +77,7 @@ npm run metrics              # see how the factory is performing
 
 | Week | Goal | Done when |
 |---|---|---|
-| **1. By hand** | Learn each role. In the stock app run `claude`, then e.g. *"Use the planner subagent to plan issue #3"*, then builder, tester, reviewer. Tune `agents/*.md` and `CLAUDE.md`. | You've shipped 3 issues manually through all 4 roles and rewritten each prompt at least once. |
+| **1. By hand** | Learn each role. In the stock app run `claude`, then e.g. *"Use the planner subagent to plan issue #3"*, then builder, tester, documenter, reviewer. Tune `agents/*.md` and `CLAUDE.md`. | You've shipped 3 issues manually through all 5 roles and rewritten each prompt at least once. |
 | **2. Automate** | Run `npm run factory`. Start with `maxParallel: 1`, then 3. Watch the logs and fix what breaks. | 10+ PRs opened by the factory. |
 | **3. CI + gates** | Enable branch protection (require `tests`), add the `ANTHROPIC_API_KEY` secret, turn on auto-merge in repo settings, set `autoMergeLowRisk: true`. Tune `highRiskPaths`. | Low-risk PRs merge with no human touch; risky ones never do. |
 | **4. Evidence** | Run 20–30 issues. Write `docs/LEARNING-LOG.md`. Build a small dashboard page on `metrics/runs.jsonl` if time allows. | You can present your numbers and failures in 45 min. |

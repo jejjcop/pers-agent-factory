@@ -36,6 +36,32 @@ export async function removeWorktree(repo: string, dir: string): Promise<void> {
   await run('git', ['worktree', 'remove', '--force', dir], repo);
 }
 
+/**
+ * Stage everything, so the index is a snapshot that later changes can be compared with
+ * (see changedSinceStaged). Undo with unstageAll() so `git diff` shows the whole change again.
+ */
+export async function stageAll(cwd: string): Promise<void> {
+  await run('git', ['add', '-A'], cwd);
+}
+
+export async function unstageAll(cwd: string): Promise<void> {
+  await run('git', ['reset', '-q'], cwd);
+}
+
+/** Files changed since stageAll(): modified or deleted tracked files, and new untracked files. */
+export async function changedSinceStaged(cwd: string): Promise<{ changed: string[]; added: string[] }> {
+  const list = async (args: string[]) => (await run('git', args, cwd)).split('\0').filter(Boolean);
+  return {
+    changed: await list(['diff', '--name-only', '-z']),
+    added: await list(['ls-files', '--others', '--exclude-standard', '-z']),
+  };
+}
+
+/** Put tracked files back to their staged (snapshot) content. */
+export async function restoreFromIndex(cwd: string, files: string[]): Promise<void> {
+  if (files.length) await run('git', ['checkout', '--', ...files], cwd);
+}
+
 /** Stage everything, commit, and return the list of changed files. */
 export async function commitAll(cwd: string, message: string): Promise<string[]> {
   await run('git', ['add', '-A'], cwd);

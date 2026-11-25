@@ -1,19 +1,19 @@
-import { writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runAgent } from './agents.js';
 import { FACTORY_ROOT, loadConfig, type FactoryConfig } from './config.js';
 import { assessRisk, confirm } from './gates.js';
-import { commitAll, createWorktree, removeWorktree, shell } from './git.js';
+import { changedSinceStaged, commitAll, createWorktree, removeWorktree, restoreFromIndex, shell, stageAll, unstageAll } from './git.js';
 import { enableAutoMerge, ensureLabels, getIssue, openPr, type Issue } from './github.js';
 import { log, tail } from './log.js';
 import { recordMetric, type TaskMetric } from './metrics.js';
-import { builderPrompt, formatReview, plannerPrompt, prBody, reviewerPrompt, taskContext, testerPrompt } from './prompts.js';
+import { builderPrompt, documenterPrompt, formatReview, plannerPrompt, prBody, reviewerPrompt, taskContext, testerPrompt } from './prompts.js';
 import { PLAN_SCHEMA, REVIEW_SCHEMA, type Plan, type Review, type Task } from './schemas.js';
 
 /**
  * The whole factory:
  *   issue → PLANNER → [human gate] → per task, in parallel worktrees:
- *     BUILDER → TESTER → run tests ⟲ BUILDER fixes → REVIEWER ⟲ BUILDER fixes → PR → [risk gate] → auto-merge or human
+ *     BUILDER → TESTER → run tests ⟲ BUILDER fixes → DOCUMENTER → REVIEWER ⟲ BUILDER fixes → PR → [risk gate] → auto-merge or human
  */
 export async function runIssue(issueNumber: number, flags: { yes: boolean }): Promise<void> {
   const cfg = loadConfig();
@@ -92,6 +92,24 @@ async function runTask(cfg: FactoryConfig, runId: string, issue: Issue, plan: Pl
       log(tag, `tests ${r.ok ? 'PASS ✅' : 'FAIL ❌'}`);
       return r;
     };
+    // The documenter may only touch docs. Anything else it changes is put back, so the
+    // reviewer never sees code that skipped the tests.
+    const document = async () => {
+      await stageAll(dir);
+      try {
+        metric.costUsd += (await runAgent('documenter', documenterPrompt(context), agentOpts('documenter'))).costUsd;
+        const { changed, added } = await changedSinceStaged(dir);
+        const changedCode = changed.filter((f) => !isDocFile(f));
+        const addedCode = added.filter((f) => !isDocFile(f));
+        await restoreFromIndex(dir, changedCode);
+        for (const f of addedCode) rmSync(join(dir, f), { force: true });
+        if (changedCode.length || addedCode.length) {
+          log(tag, `documenter touched non-doc files, reverted: ${[...changedCode, ...addedCode].join(', ')}`);
+        }
+      } finally {
+        await unstageAll(dir);
+      }
+    };
 
     // BUILD, then an independent TESTER tries to break it.
     await build();
@@ -104,6 +122,9 @@ async function runTask(cfg: FactoryConfig, runId: string, issue: Issue, plan: Pl
       await build(`The test suite fails. Fix the cause.\n\n\`\`\`\n${tail(tests.output)}\n\`\`\``);
       tests = await runTests();
     }
+
+    // DOCS: once the code works, bring the docs in line so the reviewer checks both together.
+    if (tests.ok) await document();
 
     // REVIEW LOOP: reviewer gates, builder fixes blocking issues.
     let review: Review | undefined;
@@ -120,6 +141,8 @@ async function runTask(cfg: FactoryConfig, runId: string, issue: Issue, plan: Pl
         await build(`A senior reviewer requested changes:\n${formatReview(review)}`);
         tests = await runTests();
         if (!tests.ok) break;
+        // The fix may have changed behaviour the docs describe.
+        await document();
       }
     }
 
@@ -191,6 +214,13 @@ function printPlan(plan: Plan): void {
   }
   console.log('Tasks (run in parallel):');
   plan.tasks.forEach((t, i) => console.log(`  ${i + 1}. [${t.id}] ${t.title}\n     ${t.instructions.replace(/\n/g, '\n     ')}`));
+}
+
+/** What the documenter may change: Markdown and docs/, but not CLAUDE.md or the agents' own config. */
+export function isDocFile(path: string): boolean {
+  const p = path.replace(/\\/g, '/');
+  if (/^\.(claude|github)\//.test(p) || /(^|\/)CLAUDE\.md$/i.test(p)) return false;
+  return /\.md$/i.test(p) || p.startsWith('docs/');
 }
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {

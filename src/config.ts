@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 export const FACTORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-export type Role = 'planner' | 'builder' | 'tester' | 'reviewer';
+export type Role = 'planner' | 'builder' | 'tester' | 'documenter' | 'reviewer';
 
 export interface FactoryConfig {
   targetRepo: string;
