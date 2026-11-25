@@ -42,8 +42,6 @@ const templates = resolve(FACTORY_ROOT, 'templates', 'target');
 
 const copies: [string, boolean][] = [
   ['.claude/hooks/guard.mjs', true],
-  ['.github/workflows/tests.yml', true],
-  ['.github/workflows/claude-review.yml', true],
   ['CLAUDE.md', false],
 ];
 for (const [file, overwrite] of copies) {
