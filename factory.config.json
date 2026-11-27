@@ -1,5 +1,5 @@
 {
-  "targetRepo": "C:/Per/Projects/stock-panel",
+  "targetRepo": "../stock-panel",
   "baseBranch": "main",
   "worktreeDir": "../.factory-worktrees",
   "setupCommand": "composer install --no-interaction --quiet && npm ci --silent && php -r \"if (file_exists('.env.example') && !file_exists('.env')) { copy('.env.example', '.env'); passthru('php artisan key:generate --quiet'); }\"",

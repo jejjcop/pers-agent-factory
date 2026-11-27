@@ -1,6 +1,6 @@
 import { readMetrics } from './metrics.js';
 
-/** `npm run metrics` — the numbers you show in the interview. */
+/** `npm run metrics` — summary of all factory runs. */
 const all = readMetrics();
 const tasks = all.filter((m) => m.outcome !== 'plan_rejected');
 const prs = tasks.filter((m) => m.outcome === 'pr_opened');
@@ -37,7 +37,7 @@ for (const [k, v] of rows) console.log(`  ${k.padEnd(36)} ${v}`);
 
 const failures = tasks.filter((m) => m.outcome === 'failed');
 if (failures.length) {
-  console.log('\n Failures (read these — they are your best interview material):');
+  console.log('\n Recent failures:');
   for (const f of failures.slice(-10)) console.log(`  #${f.issue} ${f.taskTitle}: ${f.error?.split('\n')[0]}`);
 }
 console.log();

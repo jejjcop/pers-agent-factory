@@ -1,6 +1,10 @@
 # Agent Factory
 
-A fleet of AI agents that **plan, build, test, review and ship** pull requests end to end, with humans placed at explicit gates.
+An orchestrator that turns GitHub issues into reviewed, tested pull requests using a team of specialised AI agents, with humans placed at explicit, configurable gates.
+
+Built on the [Claude Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) in TypeScript.
+
+## How it works
 
 ```
 GitHub issue
@@ -11,90 +15,137 @@ PLANNER (read-only) ── plan + acceptance criteria + independent tasks
    ▼
 🧑 HUMAN GATE: approve plan
    │
-   ├──────────────┬──────────────┐        ← swarm: one git worktree per task, run in parallel
+   ├──────────────┬──────────────┐        ← one isolated git worktree per task, run in parallel
    ▼              ▼              ▼
-BUILDER        BUILDER        BUILDER     writes code + tests
+BUILDER        BUILDER        BUILDER     implements the task, with tests
    ▼              ▼              ▼
-TESTER         TESTER         TESTER      independent agent, tries to break it
+TESTER         TESTER         TESTER      independent agent, writes tests that try to break it
    ▼              ▼              ▼
-run tests ⟲ builder fixes (max N attempts)
+run test suite ⟲ builder fixes failures (max N attempts)
    ▼
-REVIEWER (read-only, structured verdict) ⟲ builder fixes blocking issues
+DOCUMENTER     updates README / docs / CHANGELOG to match the change
    ▼
-PR opened ─► RISK POLICY ─► 🟢 low-risk: auto-merge when CI green
-                         └► 🔴 high-risk: label needs-human
+REVIEWER (read-only, structured verdict) ⟲ builder fixes blocking issues, documenter re-runs
+   ▼
+PR opened ─► RISK POLICY ─► 🟢 low risk:  auto-merge when CI is green (opt-in)
+                         └► 🔴 high risk: labelled needs-human
    ▼
 metrics/runs.jsonl ─► npm run metrics
 ```
 
-## Layout
+### Agents
 
-```
-agent-factory/                 ← this repo (TypeScript, Claude Agent SDK)
-├── agents/                    planner / builder / tester / documenter / reviewer: role prompts + allowed tools
-├── src/pipeline.ts            the orchestration (read this first)
-├── src/gates.ts               human gate + risk policy ("where does a human belong")
-├── src/agents.ts              runs one agent via the SDK, logs tool calls, tracks cost
-├── src/report.ts              metrics summary
-├── factory.config.json        target repo, test command, parallelism, budgets, high-risk paths
-├── templates/target/          copied into the stock app by `npm run sync`
-│   ├── .claude/settings.json  registers the guard hook
-│   ├── .claude/hooks/guard.mjs  blocks secrets, git push, DB wipes, CI edits
-│   ├── .github/workflows/     tests + independent Claude review in CI
-│   └── CLAUDE.md              conventions every agent reads (edit this!)
-└── docs/LEARNING-LOG.md       what you learned: this is your interview
-```
+| Agent | Role | Can edit files |
+|---|---|---|
+| **Planner** | Turns an issue into a small plan with acceptance criteria, split into tasks that can be built in parallel. | No |
+| **Builder** | Implements exactly one task, with tests, in its own worktree. | Yes |
+| **Tester** | Writes adversarial tests against the acceptance criteria. Never changes application code. | Tests only |
+| **Documenter** | Brings the project's documentation in line with the change. Non-doc edits are reverted by the orchestrator. | Docs only |
+| **Reviewer** | Reviews the diff for correctness, security and maintainability; returns `approve` or `request_changes`. | No |
 
-## Setup (≈15 min)
+Each agent is a Markdown file in [`agents/`](agents/) using the Claude Code subagent format, so the same definitions run in the automated pipeline and interactively in Claude Code.
 
-**Prerequisites:** Node 20+, Git, PHP + Composer, [GitHub CLI](https://cli.github.com) (`gh auth login`), an Anthropic API key.
+### Safety and control
 
-1. Put this folder **next to** your stock app, e.g. `C:\dev\agent-factory` and `C:\dev\stock-app`, or adjust `targetRepo` in `factory.config.json`.
-2. Check that the stock app is on GitHub and that `php artisan test` passes on `main`.
-3. Install and set the key:
+- **Human gates.** A person approves every plan before code is written. PRs touching high-risk paths, failing tests or lacking reviewer approval are never auto-merged.
+- **Risk policy as code.** [`src/gates.ts`](src/gates.ts) decides which PRs can merge unattended, based on `highRiskPaths`, change size, test results and the review verdict.
+- **Guard hook.** A `PreToolUse` hook installed in the target repo blocks agents from touching secrets, git internals, CI config and the guardrails themselves, and from running destructive commands (`git push`, hard resets, database wipes, piping downloads into a shell).
+- **Isolation.** Every task runs in a fresh git worktree. Agents never commit or push; the orchestrator does.
+- **Budgets.** Each agent call is capped by `maxBudgetUsdPerAgent`, and every run is logged with its cost.
+
+## Requirements
+
+- Node.js 20+
+- Git and the [GitHub CLI](https://cli.github.com) (`gh auth login`)
+- An Anthropic API key
+- A target repository on GitHub with a working test command
+
+The included configuration and CI templates target a Laravel (PHP) application with PHPUnit and Playwright tests. Other stacks work by changing `setupCommand`, `testCommand` and the templates.
+
+## Getting started
+
+1. **Install**
+
    ```bash
    npm install
-   # PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-..."
-   # bash/zsh:   export ANTHROPIC_API_KEY=sk-ant-...
+   export ANTHROPIC_API_KEY=sk-ant-...        # PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-..."
    ```
-4. Copy the agents, guard hook and CI into the stock app, then commit there:
+
+2. **Point it at your repository** by editing [`factory.config.json`](factory.config.json) (see [Configuration](#configuration)).
+
+3. **Install the agents and guard hook in the target repo**, then commit them there so every worktree picks them up:
+
    ```bash
    npm run sync
-   cd ../stock-app && git add .claude .github CLAUDE.md && git commit -m "Add agent factory config" && git push
+   cd <target-repo> && git add .claude CLAUDE.md && git commit -m "Add agent factory config"
    ```
-5. **Edit `CLAUDE.md` in the stock app.** Ten minutes here saves hours of bad agent output.
 
-Spend is capped by `maxBudgetUsdPerAgent` (default $2 per agent call). A typical small task costs well under that.
+   `sync` never overwrites an existing `CLAUDE.md`, and merges into an existing `.claude/settings.json` rather than replacing it.
 
-## Run it
+4. **Describe your conventions in the target repo's `CLAUDE.md`.** Every agent reads it; it has the largest effect on output quality.
+
+## Usage
 
 ```bash
-npm run factory -- 12        # build issue #12
-npm run metrics              # see how the factory is performing
+npm run factory -- 12          # plan and build issue #12, with plan approval
+npm run factory -- 12 --yes    # skip the plan-approval gate
+npm run metrics                # summary of all runs
+npm run typecheck
 ```
 
-## 4-week plan
+The agents can also be used by hand: in the target repo run `claude` and ask, for example, *"Use the planner subagent to plan issue #3"*.
 
-| Week | Goal | Done when |
-|---|---|---|
-| **1. By hand** | Learn each role. In the stock app run `claude`, then e.g. *"Use the planner subagent to plan issue #3"*, then builder, tester, documenter, reviewer. Tune `agents/*.md` and `CLAUDE.md`. | You've shipped 3 issues manually through all 5 roles and rewritten each prompt at least once. |
-| **2. Automate** | Run `npm run factory`. Start with `maxParallel: 1`, then 3. Watch the logs and fix what breaks. | 10+ PRs opened by the factory. |
-| **3. CI + gates** | Enable branch protection (require `tests`), add the `ANTHROPIC_API_KEY` secret, turn on auto-merge in repo settings, set `autoMergeLowRisk: true`. Tune `highRiskPaths`. | Low-risk PRs merge with no human touch; risky ones never do. |
-| **4. Evidence** | Run 20–30 issues. Write `docs/LEARNING-LOG.md`. Build a small dashboard page on `metrics/runs.jsonl` if time allows. | You can present your numbers and failures in 45 min. |
+## Configuration
 
-## Good first issues for the stock app
+All settings live in [`factory.config.json`](factory.config.json). Paths are relative to this repository.
 
-Create these on GitHub. Small and testable is what agents are good at:
-- Show % change since purchase next to each holding, rounded to 2 decimals
-- Validate that a transaction's purchase date can't be in the future
-- CSV export of all transactions
-- Show total portfolio value and day change on the dashboard
-- Empty state on the holdings page when there are no holdings
-- An issue with **two independent parts**, to see the swarm run in parallel
+| Key | Description |
+|---|---|
+| `targetRepo` | Path to the repository the factory works on. |
+| `baseBranch` | Branch that worktrees start from and PRs target. |
+| `worktreeDir` | Where task worktrees are created. |
+| `setupCommand` | Run once in each new worktree (install dependencies, prepare `.env`). |
+| `testCommand` | Full test suite; its exit code decides pass or fail. |
+| `maxParallel` | Number of tasks built at the same time. |
+| `maxBuildAttempts` | Builder attempts per task before giving up on failing tests. |
+| `maxReviewRounds` | Reviewer → builder rounds before the PR is opened anyway. |
+| `maxBudgetUsdPerAgent` | Spend cap for a single agent call. |
+| `autoMergeLowRisk` | Enable GitHub auto-merge on low-risk PRs. Off by default. |
+| `highRiskPaths` | Path prefixes that always require a human review. |
+| `models` | Model per agent role. |
 
-## Ideas to extend (and talk about in the interview)
+To auto-merge low-risk PRs, also enable branch protection with a required `tests` check and allow auto-merge in the target repository's settings.
 
-- **Evals:** a fixed set of 10 "golden" issues with known-good solutions; rerun after every prompt change and compare pass rate and cost. This is how you know a prompt change made things *better*.
-- **Model routing:** a cheap model for simple tasks, a stronger one when attempts > 1.
-- **Planner learns from failures:** feed the last 5 failure reasons from `runs.jsonl` into the planner prompt.
-- **Issue → PR via GitHub Actions** instead of your laptop, triggered by an `agent` label.
+### CI templates
+
+[`templates/target/.github/workflows/`](templates/target/.github/workflows/) contains optional workflows for the target repo: a test job and an independent Claude review on every PR (requires an `ANTHROPIC_API_KEY` repository secret). They are not copied by `sync`; add them to the target repo yourself if you want them.
+
+## Metrics
+
+Every task appends a record to `metrics/runs.jsonl`: outcome, build attempts, test and review results, risk level, cost and duration. `npm run metrics` summarises them, including first-try test pass rate, reviewer catch rate, share of auto-merge-eligible PRs, average cost and time per PR, and the most recent failures.
+
+## Project structure
+
+```
+├── agents/                      agent definitions: role prompt + allowed tools
+├── src/
+│   ├── index.ts                 CLI entry point
+│   ├── pipeline.ts              orchestration: plan → build → test → document → review → PR
+│   ├── agents.ts                runs one agent via the SDK, logs tool calls, tracks cost
+│   ├── prompts.ts               prompts and PR body
+│   ├── schemas.ts               structured output for planner and reviewer
+│   ├── gates.ts                 human gate and risk policy
+│   ├── git.ts / github.ts       worktrees, commits, PRs, labels
+│   ├── metrics.ts / report.ts   run records and summary
+│   └── config.ts                configuration loading
+├── scripts/sync-to-target.ts    installs agents and guard hook in the target repo
+├── templates/target/            files for the target repo (.claude/, CLAUDE.md, CI workflows)
+└── factory.config.json
+```
+
+## Roadmap
+
+- **Evals:** a fixed set of reference issues with known-good solutions, re-run after every prompt change to compare pass rate and cost.
+- **Model routing:** a cheaper model for simple tasks, escalating to a stronger one after a failed attempt.
+- **Learning from failures:** feed recent failure reasons from `runs.jsonl` into the planner prompt.
+- **Run in GitHub Actions:** trigger the pipeline from an `agent` label instead of a local machine.

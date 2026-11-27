@@ -2,3 +2,4 @@ node_modules/
 metrics/*.jsonl
 plans/*.json
 .env
+docs/LEARNING-LOG.md
